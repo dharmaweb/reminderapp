@@ -12,6 +12,12 @@ const supabase = createClient(
     process.env.SUPABASE_ANON_KEY
 );
 
+// Initialize Supabase admin client with service role key
+const supabaseAdmin = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
 // CORS configuration
 const corsOptions = {
     origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'https://your-netlify-app.netlify.app'],
@@ -60,6 +66,31 @@ app.post('/auth/signup', async (req, res) => {
     }
 });
 
+app.post('/auth/resend-confirmation', async (req, res) => {
+    try {
+        const { email, redirect_url } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
+
+        const { error } = await supabase.auth.resend({
+            type: 'signup',
+            email,
+            options: {
+                emailRedirectTo: redirect_url
+            }
+        });
+
+        if (error) throw error;
+
+        res.json({ message: 'Confirmation email has been resent' });
+    } catch (error) {
+        console.error('Resend confirmation error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/auth/signin', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -81,6 +112,27 @@ app.post('/auth/signout', async (req, res) => {
         if (error) throw error;
         res.json({ message: 'Signed out successfully' });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/auth/reset-password', async (req, res) => {
+    try {
+        const { email, redirect_url } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
+
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: redirect_url
+        });
+
+        if (error) throw error;
+
+        res.json({ message: 'Password reset instructions have been sent' });
+    } catch (error) {
+        console.error('Reset password error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -132,19 +184,64 @@ app.put('/user/password', async (req, res) => {
 app.delete('/user', async (req, res) => {
     try {
         const token = req.headers.authorization?.split('Bearer ')[1];
+        const { password } = req.body;
         
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });
         }
 
+        if (!password) {
+            return res.status(400).json({ error: 'Password is required' });
+        }
+
+        // First, get the user data
         const { data: { user }, error: authError } = await supabase.auth.getUser(token);
         if (authError) throw authError;
 
-        const { error } = await supabase.auth.admin.deleteUser(user.id);
+        // Verify password by attempting to sign in
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: user.email,
+            password
+        });
+
+        if (signInError) {
+            return res.status(401).json({ error: 'Invalid password' });
+        }
+
+        // Delete user data from user_profiles table first (if you have this table)
+        const { error: profileError } = await supabaseAdmin
+            .from('user_profiles')
+            .delete()
+            .eq('id', user.id);
+
+        if (profileError) throw profileError;
+
+        // Delete the user's auth account using admin client
+        const { error } = await supabaseAdmin.auth.admin.deleteUser(user.id);
         if (error) throw error;
 
         res.json({ message: 'User deleted successfully' });
     } catch (error) {
+        console.error('Delete user error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/auth/user', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split('Bearer ')[1];
+        
+        if (!token) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
+
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        
+        if (error) throw error;
+        
+        res.json(user);
+    } catch (error) {
+        console.error('Get user error:', error);
         res.status(500).json({ error: error.message });
     }
 });
