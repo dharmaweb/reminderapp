@@ -32,7 +32,15 @@ const supabaseAdmin = createClient(
 
 // CORS configuration
 const corsOptions = {
-    origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'https://your-netlify-app.netlify.app'],
+    origin: process.env.ALLOWED_ORIGINS 
+        ? process.env.ALLOWED_ORIGINS.split(',') 
+        : [
+            'http://localhost:3000',
+            'http://localhost:5000',
+            'http://127.0.0.1:5000',
+            'https://reminderapp-inud.netlify.app',
+            'https://reminderapp-inud.onrender.com'
+          ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -284,6 +292,16 @@ app.get('/auth/user', async (req, res) => {
         console.error('Get user error:', error);
         res.status(500).json({ error: error.message });
     }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Error:', err.stack);
+    res.status(500).json({ 
+        error: 'Something went wrong!',
+        message: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
 });
 
 // Start server
