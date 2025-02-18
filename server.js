@@ -9,13 +9,25 @@ const port = process.env.PORT || 3000;
 // Initialize Supabase client
 const supabase = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY
+    process.env.SUPABASE_ANON_KEY,
+    {
+        auth: {
+            autoRefreshToken: true,
+            persistSession: true
+        }
+    }
 );
 
 // Initialize Supabase admin client with service role key
 const supabaseAdmin = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    {
+        auth: {
+            autoRefreshToken: false,
+            persistSession: false
+        }
+    }
 );
 
 // CORS configuration
@@ -163,21 +175,49 @@ app.put('/user/profile', async (req, res) => {
 
 app.put('/user/password', async (req, res) => {
     try {
-        const { password } = req.body;
+        const { current_password, new_password } = req.body;
         const token = req.headers.authorization?.split('Bearer ')[1];
         
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });
         }
 
-        const { error } = await supabase.auth.updateUser({
-            password
+        // Get the user data
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+        if (userError) throw userError;
+
+        // First, verify current password by attempting to sign in
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: user.email,
+            password: current_password
         });
 
-        if (error) throw error;
+        if (signInError) {
+            return res.status(401).json({ error: 'Current password is incorrect' });
+        }
+
+        // Set up admin auth client with the service role key
+        const { data: updateData, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+            user.id,
+            { password: new_password }
+        );
+
+        if (updateError) {
+            console.error('Password update error:', updateError);
+            throw updateError;
+        }
+
+        // Force logout all sessions for this user for security
+        const { error: signOutError } = await supabaseAdmin.auth.admin.signOut(user.id);
+        if (signOutError) {
+            console.error('Sign out error:', signOutError);
+            // Don't throw here as password was updated successfully
+        }
+
         res.json({ message: 'Password updated successfully' });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Password update error:', error);
+        res.status(500).json({ error: error.message || 'Failed to update password' });
     }
 });
 
