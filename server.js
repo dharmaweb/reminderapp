@@ -39,6 +39,7 @@ const corsOptions = {
             'http://localhost:5000',
             'http://127.0.0.1:5000',
             'https://reminderapp-inud.netlify.app',
+            'https://remindlypro.netlify.app',
             'https://reminderapp-inud.onrender.com'
           ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -50,7 +51,9 @@ const corsOptions = {
 // Middleware
 app.use(cors(corsOptions));
 app.use(express.json());
-app.use(express.static('.')); // Serve static files from the root directory
+
+// Add CORS preflight
+app.options('*', cors(corsOptions));
 
 // Auth routes
 app.post('/auth/signup', async (req, res) => {
@@ -292,6 +295,24 @@ app.get('/auth/user', async (req, res) => {
         console.error('Get user error:', error);
         res.status(500).json({ error: error.message });
     }
+});
+
+// Add CORS error handling
+app.use((err, req, res, next) => {
+    if (err.name === 'CORSError') {
+        console.error('CORS Error:', {
+            origin: req.headers.origin,
+            method: req.method,
+            path: req.path,
+            error: err.message
+        });
+        return res.status(403).json({
+            error: 'CORS Error',
+            message: 'Cross-Origin Request Blocked',
+            details: err.message
+        });
+    }
+    next(err);
 });
 
 // Error handling middleware
